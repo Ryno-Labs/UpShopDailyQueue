@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1c1c1e" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Queue" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<title>Color New — Daily Queue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#F4F4F5; --card:#FFFFFF; --line:#E4E4E7; --line-2:#ECECEE; --track:#E9E9EB;
+    --ink:#18181B; --ink-2:#3F3F46; --muted:#71717A; --faint:#A1A1AA;
+    --red:#AE040F; --red-2:#D93A2B;         /* Cornell Red — brand + the one number */
+    --green:#15803D; --green-bg:#DCFCE7; --green-line:#BBF7D0;
+    --amber:#92400E; --amber-bg:#FEF3C7; --amber-line:#FDE68A;
+    --radius:14px; --pad:16px;
+    font-family:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--ink)}
+  body{padding:0 0 48px;max-width:720px;margin:0 auto;min-height:100vh}
+  .mono{font-family:"Geist Mono",ui-monospace,monospace}
+
+  /* ---- flashy header ---- */
+  header{
+    position:sticky;top:0;z-index:20;
+    background:linear-gradient(180deg,#2b2b2e 0%,#202022 100%);
+    padding:calc(env(safe-area-inset-top,0) + 16px) var(--pad) 16px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    box-shadow:0 6px 20px -12px rgba(0,0,0,.55);
+    overflow:hidden;
+  }
+  header::before{ /* ambient red glow, top-left */
+    content:"";position:absolute;top:-60px;left:-40px;width:200px;height:160px;
+    background:radial-gradient(closest-side, rgba(174,4,15,.55), rgba(174,4,15,0));
+    pointer-events:none;
+  }
+  header::after{ /* red accent underline */
+    content:"";position:absolute;left:0;right:0;bottom:0;height:3px;
+    background:linear-gradient(90deg,var(--red) 0%,var(--red-2) 45%,rgba(217,58,43,0) 100%);
+  }
+  .brand{display:flex;align-items:center;gap:12px;position:relative;z-index:1}
+  .logo{
+    width:44px;height:44px;border-radius:12px;flex:none;
+    background:linear-gradient(145deg,var(--red-2),var(--red));
+    box-shadow:0 4px 14px -3px rgba(174,4,15,.7), inset 0 1px 0 rgba(255,255,255,.25);
+    display:grid;place-items:center;color:#fff;font-weight:800;font-size:17px;letter-spacing:.02em;
+  }
+  .brand-txt{display:flex;flex-direction:column;line-height:1.15}
+  .brand-txt b{font-size:17px;font-weight:700;color:#fff;letter-spacing:.2px}
+  .brand-txt .sub{display:flex;align-items:center;gap:7px;font-size:11px;color:#b8b8bd;
+    letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
+  .live{width:7px;height:7px;border-radius:50%;background:#4b5563;flex:none}
+  .live.on{background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:pulse 2s infinite}
+  .live.stale{background:var(--amber-line)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+  .sync{display:flex;align-items:center;gap:10px;position:relative;z-index:1}
+  .updated{font-size:11px;color:#a1a1aa;text-align:right;line-height:1.3}
+  .refresh{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;
+    width:40px;height:40px;border-radius:11px;font-size:17px;cursor:pointer;
+    display:grid;place-items:center;transition:transform .3s ease,background .2s}
+  .refresh:active{transform:rotate(120deg);background:rgba(255,255,255,.16)}
+  .refresh.spin{animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .banner{font-size:12px;padding:9px var(--pad);text-align:center;letter-spacing:.02em}
+  .banner.demo{background:var(--amber-bg);color:var(--amber);border-bottom:1px solid var(--amber-line)}
+  .banner.offline{background:var(--amber-bg);color:var(--amber);border-bottom:1px solid var(--amber-line)}
+  .banner.err{background:#FEE2E2;color:#991B1B;border-bottom:1px solid #FECACA}
+  .hide{display:none !important}
+
+  /* ---- hero: the scoreboard ---- */
+  .hero{padding:18px var(--pad) 6px}
+  .hero-card{position:relative;overflow:hidden;border-radius:22px;padding:28px 22px 24px;text-align:center;
+    background:linear-gradient(158deg,#2d2d31 0%,#191a1c 78%);
+    border:1px solid #34343a;
+    box-shadow:0 20px 44px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06)}
+  .hero-card::before{content:"";position:absolute;top:-42%;left:50%;transform:translateX(-50%);
+    width:300px;height:300px;border-radius:50%;
+    background:radial-gradient(closest-side, rgba(210,40,30,.55), rgba(210,40,30,0));
+    pointer-events:none}
+  .hero-eyebrow{position:relative;font-size:11px;letter-spacing:.22em;color:#8b8b92;font-weight:600}
+  .hero .num{position:relative;font-size:104px;font-weight:800;line-height:.82;letter-spacing:-.045em;margin-top:6px;
+    background:linear-gradient(180deg,#ff6a5a,#c20510);-webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 0 26px rgba(226,58,46,.5))}
+  .hero .lbl{position:relative;margin-top:6px;font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:#a9a9b0}
+  .chips{position:relative;display:flex;gap:8px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:7px 13px;font-size:13px;color:#dcdce0}
+  .chip b{font-weight:700;color:#fff}
+  .cdot{width:8px;height:8px;border-radius:50%}
+  .cdot.cust{background:#4cc2ff}
+  .cdot.deal{background:#c4a2ff}
+  .hero .week{position:relative;margin-top:14px;font-size:12px;color:#8b8b92}
+
+  /* ---- sections ---- */
+  section{padding:24px var(--pad) 4px}
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+  .sec-head h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+  .sec-head .count{font-size:12px;color:var(--muted)}
+
+  .seg{display:flex;gap:4px;background:var(--track);border-radius:11px;padding:4px;margin-bottom:16px}
+  .seg button{flex:1;background:transparent;border:0;color:var(--muted);
+    font-family:inherit;font-size:13px;font-weight:600;padding:9px 6px;border-radius:8px;cursor:pointer}
+  .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+  .daygroup{margin-bottom:18px}
+  .daygroup > .dh{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+    margin:0 2px 9px;display:flex;align-items:center;gap:8px;font-weight:600}
+  .daygroup > .dh.today{color:var(--green)}
+  .daygroup > .dh .today-dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block}
+
+  /* ---- cards ---- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px 15px;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .card .name{font-size:16px;font-weight:700;line-height:1.2;color:var(--ink)}
+  .card .veh{font-size:13px;color:var(--muted);margin-top:2px}
+  .card .desc{font-size:14px;color:var(--ink-2);margin-top:9px;line-height:1.4}
+  .badge{font-family:"Geist Mono",monospace;font-size:12px;color:var(--muted);
+    border:1px solid var(--line);border-radius:7px;padding:4px 8px;white-space:nowrap}
+  .price{font-family:"Geist Mono",monospace;font-size:15px;font-weight:600;color:var(--ink);white-space:nowrap}
+
+  .flags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .flag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+    padding:3px 9px;border-radius:999px;letter-spacing:.02em}
+  .flag.warn{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-line)}
+  .flag.good{background:var(--green-bg);color:var(--green);border:1px solid var(--green-line)}
+  .flag .fdot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  .empty{color:var(--muted);font-size:14px;text-align:center;padding:26px 10px;
+    border:1px dashed var(--line);border-radius:var(--radius);background:var(--card)}
+
+  /* ---- calendar ---- */
+  .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .cal-nav button{background:var(--card);border:1px solid var(--line);color:var(--ink-2);
+    width:36px;height:36px;border-radius:9px;font-size:16px;cursor:pointer}
+  .cal-nav .mtitle{font-size:14px;font-weight:700;letter-spacing:.02em}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cal-dow{font-size:10px;color:var(--faint);text-align:center;letter-spacing:.1em;padding-bottom:2px}
+  .cal-day{aspect-ratio:1;border:1px solid var(--line-2);border-radius:9px;background:var(--card);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    font-size:13px;cursor:pointer;position:relative;color:var(--ink)}
+  .cal-day.blank{background:transparent;border-color:transparent;cursor:default}
+  .cal-day.muted{color:var(--faint)}
+  .cal-day.has{border-color:var(--line);background:#FAFAFA}
+  .cal-day.today{outline:1.5px solid var(--green);outline-offset:-1.5px}
+  .cal-day.sel{background:var(--track);border-color:#C9C9CE}
+  .cal-day .cnt{font-family:"Geist Mono",monospace;font-size:10px;color:var(--muted)}
+  .cal-day.has .cnt{color:var(--ink)}
+  .cal-picked{margin-top:16px}
+  .cal-picked .dh{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 2px 9px;font-weight:600}
+
+  footer{color:var(--faint);font-size:11px;text-align:center;padding:26px 16px 8px}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">CN</div>
+      <div class="brand-txt">
+        <b>Color New</b>
+        <span class="sub"><span class="live" id="liveDot"></span>Daily Queue</span>
+      </div>
+    </div>
+    <div class="sync">
+      <div class="updated" id="updated">—</div>
+      <button class="refresh" id="refresh" aria-label="Refresh">&#8635;</button>
+    </div>
+  </header>
+
+  <div class="banner demo hide" id="demoBanner">Demo data — paste your Apps Script URL to go live</div>
+  <div class="banner offline hide" id="offlineBanner">Offline — showing last saved data</div>
+  <div class="banner err hide" id="errBanner"></div>
+
+  <div class="hero">
+    <div class="hero-card">
+      <div class="hero-eyebrow" id="heroDate"></div>
+      <div class="num" id="heroNum">0</div>
+      <div class="lbl">Lined up today</div>
+      <div class="chips">
+        <span class="chip"><span class="cdot cust"></span><b id="chipCust">0</b>&nbsp;customers</span>
+        <span class="chip"><span class="cdot deal"></span><b id="chipDeal">0</b>&nbsp;dealer jobs</span>
+      </div>
+      <div class="week" id="heroWeek"></div>
+    </div>
+  </div>
+
+  <!-- Customers -->
+  <section id="custSection">
+    <div class="sec-head">
+      <h2>Customers coming in</h2>
+      <span class="count" id="custCount"></span>
+    </div>
+    <div class="seg" id="custSeg">
+      <button data-view="today" class="on">Today</button>
+      <button data-view="week">This week</button>
+      <button data-view="month">This month</button>
+    </div>
+    <div id="custBody"></div>
+  </section>
+
+  <!-- Dealer -->
+  <section id="dealSection">
+    <div class="sec-head">
+      <h2>Dealer jobs</h2>
+      <span class="count" id="dealCount"></span>
+    </div>
+    <div class="seg" id="dealSeg">
+      <button data-view="today" class="on">Today</button>
+      <button data-view="week">This week</button>
+    </div>
+    <div id="dealBody"></div>
+  </section>
+
+  <footer id="foot">Color New · view-only board · no contact info stored</footer>
+
+<script>
+/* ================= CONFIG ================= */
+// Paste your Apps Script /exec URL here after deploying Code.gs:
+var SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE";
+var CACHE_KEY = "colornew_queue_v1";
+
+/* ============== date utilities ============== */
+function pad(n){return (n<10?"0":"")+n;}
+function keyOf(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+function parseKey(k){var p=k.split("-");return new Date(+p[0],+p[1]-1,+p[2]);}
+var TODAY = new Date(); TODAY.setHours(0,0,0,0);
+var TODAY_KEY = keyOf(TODAY);
+function weekBounds(){
+  var s=new Date(TODAY); s.setDate(TODAY.getDate()-TODAY.getDay());
+  var e=new Date(s); e.setDate(s.getDate()+6);
+  return {start:keyOf(s),end:keyOf(e)};
+}
+var WEEK = weekBounds();
+function inWeek(k){return k>=WEEK.start && k<=WEEK.end;}
+var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+var MON=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function prettyDay(k){
+  if(!k) return "No date";
+  if(k===TODAY_KEY) return "Today";
+  var d=parseKey(k);
+  return DOW[d.getDay()]+", "+MON[d.getMonth()].slice(0,3)+" "+d.getDate();
+}
+
+/* ============== state ============== */
+var DATA={dealer:[],retail:[]};
+var custView="today", dealView="today";
+var calMonth=TODAY.getMonth(), calYear=TODAY.getFullYear(), calPicked=null;
+
+/* ============== fetch + cache ============== */
+function loadCache(){
+  try{var raw=localStorage.getItem(CACHE_KEY); if(raw) return JSON.parse(raw);}catch(e){}
+  return null;
+}
+function saveCache(payload){
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify({at:Date.now(),data:payload}));}catch(e){}
+}
+function setLive(state){ // "on" | "stale" | "off"
+  var d=document.getElementById("liveDot");
+  d.className="live"+(state==="on"?" on":state==="stale"?" stale":"");
+}
+function setUpdated(ts,stale){
+  var el=document.getElementById("updated");
+  if(!ts){el.textContent="—";return;}
+  var d=new Date(ts);
+  var t=d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+  el.innerHTML=(stale?"Saved ":"Updated ")+t+"<br>"+d.toLocaleDateString([], {month:"short",day:"numeric"});
+}
+
+function show(id,on){document.getElementById(id).classList.toggle("hide",!on);}
+
+function fetchLive(){
+  var btn=document.getElementById("refresh"); btn.classList.add("spin");
+  show("errBanner",false);
+  fetch(SCRIPT_URL,{method:"GET"})
+    .then(function(r){if(!r.ok) throw new Error("HTTP "+r.status); return r.json();})
+    .then(function(j){
+      if(!j || j.ok===false) throw new Error(j&&j.error?j.error:"Feed error");
+      DATA={dealer:j.dealer||[],retail:j.retail||[]};
+      saveCache(DATA);
+      setUpdated(Date.now(),false); setLive("on");
+      show("offlineBanner",false);
+      renderAll();
+    })
+    .catch(function(err){
+      var cached=loadCache();
+      if(cached){DATA=cached.data; setUpdated(cached.at,true); setLive("stale"); show("offlineBanner",true); renderAll();}
+      else{setLive("off"); document.getElementById("errBanner").textContent="Can’t reach the sheet. Check the Apps Script URL."; show("errBanner",true);}
+    })
+    .finally(function(){btn.classList.remove("spin");});
+}
+
+/* ============== rendering ============== */
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+
+function fmtEyebrow(){
+  var days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  return (days[TODAY.getDay()]+" · "+MON[TODAY.getMonth()].slice(0,3)+" "+TODAY.getDate()).toUpperCase();
+}
+function animateCount(el,to){
+  var dur=650, start=null;
+  function step(ts){
+    if(!start) start=ts;
+    var p=Math.min((ts-start)/dur,1);
+    var eased=1-Math.pow(1-p,3);
+    el.textContent=Math.round(to*eased);
+    if(p<1) requestAnimationFrame(step); else el.textContent=to;
+  }
+  requestAnimationFrame(step);
+}
+function heroNumbers(){
+  var custToday=DATA.retail.filter(function(r){return r.apptDate===TODAY_KEY;}).length;
+  var dealToday=DATA.dealer.filter(function(r){return r.entryDate===TODAY_KEY;}).length;
+  var custWeek=DATA.retail.filter(function(r){return inWeek(r.apptDate);}).length;
+  var dealWeek=DATA.dealer.filter(function(r){return inWeek(r.entryDate);}).length;
+  document.getElementById("heroDate").textContent=fmtEyebrow();
+  animateCount(document.getElementById("heroNum"), custToday+dealToday);
+  document.getElementById("chipCust").textContent=custToday;
+  document.getElementById("chipDeal").textContent=dealToday;
+  document.getElementById("heroWeek").textContent="This week: "+(custWeek+dealWeek)+" lined up";
+}
+
+function flagRow(flags){
+  if(!flags.length) return "";
+  return '<div class="flags">'+flags.map(function(f){
+    return '<span class="flag '+f.kind+'"><span class="fdot"></span>'+esc(f.text)+'</span>';
+  }).join("")+'</div>';
+}
+
+function custCard(r){
+  var flags=[];
+  if(r.apptDate===TODAY_KEY) flags.push({kind:"good",text:"In today"});
+  return '<div class="card">'+
+    '<div class="top"><div><div class="name">'+esc(r.name||"—")+'</div>'+
+    '<div class="veh">'+esc(r.vehicle||"")+'</div></div>'+
+    '<span class="badge">'+esc(prettyDay(r.apptDate))+'</span></div>'+
+    (r.description?'<div class="desc">'+esc(r.description)+'</div>':'')+
+    flagRow(flags)+'</div>';
+}
+function dealCard(r){
+  var flags=[];
+  if(r.price==null) flags.push({kind:"warn",text:"Needs quote"});
+  if(r.entryDate===TODAY_KEY) flags.push({kind:"good",text:"Logged today"});
+  return '<div class="card">'+
+    '<div class="top"><div><div class="name">'+esc(r.dealer||"—")+'</div>'+
+    '<div class="veh">'+esc(r.vehicle||"")+'</div></div>'+
+    (r.price!=null?'<span class="price">$'+Number(r.price).toLocaleString()+'</span>':'')+'</div>'+
+    (r.description?'<div class="desc">'+esc(r.description)+'</div>':'')+
+    flagRow(flags)+'</div>';
+}
+
+function groupByDay(rows,dateField){
+  var map={};
+  rows.forEach(function(r){var k=r[dateField]||""; (map[k]=map[k]||[]).push(r);});
+  return Object.keys(map).sort().map(function(k){return {key:k,rows:map[k]};});
+}
+
+function renderCustomers(){
+  var body=document.getElementById("custBody");
+  var count=document.getElementById("custCount");
+  if(custView==="today"){
+    var rows=DATA.retail.filter(function(r){return r.apptDate===TODAY_KEY;});
+    count.textContent=rows.length+" today";
+    body.innerHTML=rows.length?rows.map(custCard).join(""):emptyState("No customers booked for today.");
+  }else if(custView==="week"){
+    var wr=DATA.retail.filter(function(r){return inWeek(r.apptDate);});
+    count.textContent=wr.length+" this week";
+    body.innerHTML=wr.length?dayGroupsHTML(groupByDay(wr,"apptDate"),custCard):emptyState("Nothing booked this week yet.");
+  }else{
+    count.textContent="";
+    body.innerHTML=calendarHTML();
+  }
+}
+function renderDealers(){
+  var body=document.getElementById("dealBody");
+  var count=document.getElementById("dealCount");
+  var pool=dealView==="today"
+    ? DATA.dealer.filter(function(r){return r.entryDate===TODAY_KEY;})
+    : DATA.dealer.filter(function(r){return inWeek(r.entryDate);});
+  count.textContent=pool.length+(dealView==="today"?" today":" this week");
+  if(!pool.length){body.innerHTML=emptyState(dealView==="today"?"No dealer jobs logged today.":"No dealer jobs logged this week.");return;}
+  body.innerHTML=dealView==="today"?pool.map(dealCard).join(""):dayGroupsHTML(groupByDay(pool,"entryDate"),dealCard);
+}
+function emptyState(msg){return '<div class="empty">'+esc(msg)+'</div>';}
+
+function dayGroupsHTML(groups,cardFn){
+  return groups.map(function(g){
+    var isToday=g.key===TODAY_KEY;
+    var head='<div class="dh'+(isToday?' today':'')+'">'+(isToday?'<span class="today-dot"></span>':'')+esc(prettyDay(g.key))+'</div>';
+    return '<div class="daygroup">'+head+g.rows.map(cardFn).join("")+'</div>';
+  }).join("");
+}
+
+function calendarHTML(){
+  var counts={};
+  DATA.retail.forEach(function(r){if(r.apptDate) counts[r.apptDate]=(counts[r.apptDate]||0)+1;});
+  var first=new Date(calYear,calMonth,1);
+  var startDow=first.getDay();
+  var days=new Date(calYear,calMonth+1,0).getDate();
+  var html='<div class="cal-nav">'+
+    '<button id="calPrev" aria-label="Previous month">&#8249;</button>'+
+    '<div class="mtitle">'+MON[calMonth]+' '+calYear+'</div>'+
+    '<button id="calNext" aria-label="Next month">&#8250;</button></div>';
+  html+='<div class="cal-grid">';
+  DOW.forEach(function(d){html+='<div class="cal-dow">'+d[0]+'</div>';});
+  for(var b=0;b<startDow;b++) html+='<div class="cal-day blank"></div>';
+  for(var day=1;day<=days;day++){
+    var k=calYear+"-"+pad(calMonth+1)+"-"+pad(day);
+    var c=counts[k]||0;
+    var cls="cal-day"+(c?" has":" muted")+(k===TODAY_KEY?" today":"")+(k===calPicked?" sel":"");
+    html+='<div class="'+cls+'" data-k="'+k+'">'+day+(c?'<span class="cnt">'+c+'</span>':'')+'</div>';
+  }
+  html+='</div>';
+  if(calPicked){
+    var picked=DATA.retail.filter(function(r){return r.apptDate===calPicked;});
+    html+='<div class="cal-picked"><div class="dh">'+esc(prettyDay(calPicked))+' · '+picked.length+'</div>'+
+      (picked.length?picked.map(custCard).join(""):emptyState("No customers on this day."))+'</div>';
+  }
+  return html;
+}
+
+function renderAll(){heroNumbers();renderCustomers();renderDealers();}
+
+/* ============== events ============== */
+document.getElementById("custSeg").addEventListener("click",function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  [].forEach.call(this.children,function(x){x.classList.remove("on");});
+  b.classList.add("on"); custView=b.dataset.view; renderCustomers();
+});
+document.getElementById("dealSeg").addEventListener("click",function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  [].forEach.call(this.children,function(x){x.classList.remove("on");});
+  b.classList.add("on"); dealView=b.dataset.view; renderDealers();
+});
+document.getElementById("custBody").addEventListener("click",function(e){
+  if(e.target.id==="calPrev"){calMonth--;if(calMonth<0){calMonth=11;calYear--;}calPicked=null;renderCustomers();return;}
+  if(e.target.id==="calNext"){calMonth++;if(calMonth>11){calMonth=0;calYear++;}calPicked=null;renderCustomers();return;}
+  var cell=e.target.closest(".cal-day");
+  if(cell && !cell.classList.contains("blank")){
+    calPicked=(calPicked===cell.dataset.k)?null:cell.dataset.k; renderCustomers();
+  }
+});
+document.getElementById("refresh").addEventListener("click",fetchLive);
+
+/* ============== boot ============== */
+(function boot(){
+  if(SCRIPT_URL.indexOf("PASTE_")===0){
+    show("demoBanner",true);
+    DATA=demoData();
+    setUpdated(Date.now(),false); setLive("on");
+    renderAll();
+    return;
+  }
+  var cached=loadCache();
+  if(cached){DATA=cached.data; setUpdated(cached.at,true); setLive("stale"); renderAll();}
+  fetchLive();
+})();
+
+/* ============== demo data (no contact info — matches the live feed) ============== */
+function demoData(){
+  var t=TODAY_KEY;
+  var plus=function(n){var d=new Date(TODAY);d.setDate(d.getDate()+n);return keyOf(d);};
+  return {
+    retail:[
+      {name:"John Farmer",vehicle:"2015 Ford Explorer Sport",description:"Upper panel on passenger seat torn",apptDate:t,source:"Google Search"},
+      {name:"Brenda Kane",vehicle:"2020 Mazda CX-5",description:"Puncture back left seat",apptDate:t,source:"Google Search"},
+      {name:"Greg Haugen",vehicle:"2018 Mazda CX-5 Grand Touring",description:"Driver seat tear",apptDate:plus(1),source:"Dealership"},
+      {name:"Anne Simoni",vehicle:"2021 Mercedes GLC",description:"Replace bottom of driver bolster",apptDate:plus(2),source:"Posted Ad"},
+      {name:"Mark Carter",vehicle:"2019 Subaru Outback",description:"Tear in driver’s seat cushion",apptDate:plus(4),source:"From a Friend"}
+    ],
+    dealer:[
+      {dealer:"Carmax Killeen",vehicle:"2019 Silverado",description:"Front seat panel replace",price:425,entryDate:t},
+      {dealer:"Howdy Honda",vehicle:"2015 Q40",description:"Driver seat, 3 panels",price:375,entryDate:t},
+      {dealer:"Covert Hutto",vehicle:"2022 Wrangler",description:"Rear bench scuff — waiting on price",price:null,entryDate:t},
+      {dealer:"Round Rock Kia",vehicle:"2013 Accord",description:"Driver seat repair",price:300,entryDate:plus(-1)},
+      {dealer:"Mac Ford",vehicle:"2020 F-150",description:"Console lid recover",price:225,entryDate:plus(-2)}
+    ]
+  };
+}
+</script>
+</body>
+</html>
