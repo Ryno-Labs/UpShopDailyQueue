@@ -114,6 +114,7 @@
   .seg button{flex:1;background:transparent;border:0;color:var(--muted);
     font-family:inherit;font-size:13px;font-weight:600;padding:9px 6px;border-radius:8px;cursor:pointer}
   .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .seg-4 button{font-size:12px;padding:9px 2px;letter-spacing:-.01em}
 
   .daygroup{margin-bottom:18px}
   .daygroup > .dh{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
@@ -137,6 +138,9 @@
     padding:3px 9px;border-radius:999px;letter-spacing:.02em}
   .flag.warn{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-line)}
   .flag.good{background:var(--green-bg);color:var(--green);border:1px solid var(--green-line)}
+  .flag.info{background:#E0F2FE;color:#075985;border:1px solid #BAE6FD}
+  .flag.pull{background:#EDE9FE;color:#5B21B6;border:1px solid #DDD6FE}
+  .flag.muted{background:#F4F4F5;color:#71717A;border:1px solid #E4E4E7}
   .flag .fdot{width:6px;height:6px;border-radius:50%;background:currentColor}
 
   .empty{color:var(--muted);font-size:14px;text-align:center;padding:26px 10px;
@@ -203,10 +207,11 @@
       <h2>Customers coming in</h2>
       <span class="count" id="custCount"></span>
     </div>
-    <div class="seg" id="custSeg">
+    <div class="seg seg-4" id="custSeg">
       <button data-view="today" class="on">Today</button>
       <button data-view="week">This week</button>
-      <button data-view="month">This month</button>
+      <button data-view="nextweek">Next week</button>
+      <button data-view="month">Month</button>
     </div>
     <div id="custBody"></div>
   </section>
@@ -220,6 +225,7 @@
     <div class="seg" id="dealSeg">
       <button data-view="today" class="on">Today</button>
       <button data-view="week">This week</button>
+      <button data-view="all">All jobs</button>
     </div>
     <div id="dealBody"></div>
   </section>
@@ -229,7 +235,7 @@
 <script>
 /* ================= CONFIG ================= */
 // Paste your Apps Script /exec URL here after deploying Code.gs:
-var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx2KNJk_GQiduF7D_3dwDI0WxsDrCU-FwKMNlRIzIEcl22G8i1vuhfOfUTUONTjT5mR/exec";
+var SCRIPT_URL = "https://script.google.com/macros/library/d/1DqDt3Ed5mel4pFcsRIii_z1YnjVZA6wa1rQbPoScJpLByZfxlzXGLnFF/1";
 var CACHE_KEY = "colornew_queue_v1";
 
 /* ============== date utilities ============== */
@@ -238,13 +244,15 @@ function keyOf(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDa
 function parseKey(k){var p=k.split("-");return new Date(+p[0],+p[1]-1,+p[2]);}
 var TODAY = new Date(); TODAY.setHours(0,0,0,0);
 var TODAY_KEY = keyOf(TODAY);
-function weekBounds(){
-  var s=new Date(TODAY); s.setDate(TODAY.getDate()-TODAY.getDay());
+function weekBounds(offset){
+  var s=new Date(TODAY); s.setDate(TODAY.getDate()-TODAY.getDay()+(offset||0)*7);
   var e=new Date(s); e.setDate(s.getDate()+6);
   return {start:keyOf(s),end:keyOf(e)};
 }
-var WEEK = weekBounds();
+var WEEK = weekBounds(0);
+var NEXTWEEK = weekBounds(1);
 function inWeek(k){return k>=WEEK.start && k<=WEEK.end;}
+function inNextWeek(k){return k>=NEXTWEEK.start && k<=NEXTWEEK.end;}
 var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 var MON=["January","February","March","April","May","June","July","August","September","October","November","December"];
 function prettyDay(k){
@@ -349,10 +357,17 @@ function custCard(r){
     (r.description?'<div class="desc">'+esc(r.description)+'</div>':'')+
     flagRow(flags)+'</div>';
 }
+function statusInfo(s){
+  var t=String(s||"").trim().toLowerCase();
+  if(!t) return {kind:"muted",text:"Open"};
+  if(t.indexOf("pull")>-1) return {kind:"pull",text:"Pulled"};
+  if(t.indexOf("shop")>-1) return {kind:"info",text:"In shop"};
+  if(t.indexOf("yes")>-1||t.indexOf("done")>-1||t.indexOf("complet")>-1) return {kind:"good",text:"Done"};
+  return {kind:"info",text:s}; // show whatever was typed
+}
 function dealCard(r){
-  var flags=[];
+  var flags=[statusInfo(r.status)];
   if(r.price==null) flags.push({kind:"warn",text:"Needs quote"});
-  if(r.entryDate===TODAY_KEY) flags.push({kind:"good",text:"Logged today"});
   return '<div class="card">'+
     '<div class="top"><div><div class="name">'+esc(r.dealer||"—")+'</div>'+
     '<div class="veh">'+esc(r.vehicle||"")+'</div></div>'+
@@ -378,6 +393,10 @@ function renderCustomers(){
     var wr=DATA.retail.filter(function(r){return inWeek(r.apptDate);});
     count.textContent=wr.length+" this week";
     body.innerHTML=wr.length?dayGroupsHTML(groupByDay(wr,"apptDate"),custCard):emptyState("Nothing booked this week yet.");
+  }else if(custView==="nextweek"){
+    var nr=DATA.retail.filter(function(r){return inNextWeek(r.apptDate);});
+    count.textContent=nr.length+" next week";
+    body.innerHTML=nr.length?dayGroupsHTML(groupByDay(nr,"apptDate"),custCard):emptyState("Nothing booked next week yet.");
   }else{
     count.textContent="";
     body.innerHTML=calendarHTML();
@@ -386,12 +405,19 @@ function renderCustomers(){
 function renderDealers(){
   var body=document.getElementById("dealBody");
   var count=document.getElementById("dealCount");
-  var pool=dealView==="today"
-    ? DATA.dealer.filter(function(r){return r.entryDate===TODAY_KEY;})
-    : DATA.dealer.filter(function(r){return inWeek(r.entryDate);});
-  count.textContent=pool.length+(dealView==="today"?" today":" this week");
-  if(!pool.length){body.innerHTML=emptyState(dealView==="today"?"No dealer jobs logged today.":"No dealer jobs logged this week.");return;}
-  body.innerHTML=dealView==="today"?pool.map(dealCard).join(""):dayGroupsHTML(groupByDay(pool,"entryDate"),dealCard);
+  var pool, suffix;
+  if(dealView==="today"){ pool=DATA.dealer.filter(function(r){return r.entryDate===TODAY_KEY;}); suffix=" today"; }
+  else if(dealView==="week"){ pool=DATA.dealer.filter(function(r){return inWeek(r.entryDate);}); suffix=" this week"; }
+  else { pool=DATA.dealer.slice(); suffix=" total"; }
+  count.textContent=pool.length+suffix;
+  if(!pool.length){
+    body.innerHTML=emptyState(dealView==="today"?"No dealer jobs logged today.":dealView==="week"?"No dealer jobs logged this week.":"No dealer jobs yet.");
+    return;
+  }
+  if(dealView==="today"){ body.innerHTML=pool.map(dealCard).join(""); return; }
+  var groups=groupByDay(pool,"entryDate");
+  if(dealView==="all") groups.reverse(); // newest day first
+  body.innerHTML=dayGroupsHTML(groups,dealCard);
 }
 function emptyState(msg){return '<div class="empty">'+esc(msg)+'</div>';}
 
@@ -478,14 +504,19 @@ function demoData(){
       {name:"Brenda Kane",vehicle:"2020 Mazda CX-5",description:"Puncture back left seat",apptDate:t,source:"Google Search"},
       {name:"Greg Haugen",vehicle:"2018 Mazda CX-5 Grand Touring",description:"Driver seat tear",apptDate:plus(1),source:"Dealership"},
       {name:"Anne Simoni",vehicle:"2021 Mercedes GLC",description:"Replace bottom of driver bolster",apptDate:plus(2),source:"Posted Ad"},
-      {name:"Mark Carter",vehicle:"2019 Subaru Outback",description:"Tear in driver’s seat cushion",apptDate:plus(4),source:"From a Friend"}
+      {name:"Mark Carter",vehicle:"2019 Subaru Outback",description:"Tear in driver’s seat cushion",apptDate:plus(4),source:"From a Friend"},
+      {name:"Dana Whitfield",vehicle:"2017 Honda Pilot",description:"Rear seat bolster wear",apptDate:plus(8),source:"Website"},
+      {name:"Luis Ortega",vehicle:"2022 RAM 1500",description:"Armrest recover",apptDate:plus(9),source:"Google Search"}
     ],
     dealer:[
-      {dealer:"Carmax Killeen",vehicle:"2019 Silverado",description:"Front seat panel replace",price:425,entryDate:t},
-      {dealer:"Howdy Honda",vehicle:"2015 Q40",description:"Driver seat, 3 panels",price:375,entryDate:t},
-      {dealer:"Covert Hutto",vehicle:"2022 Wrangler",description:"Rear bench scuff — waiting on price",price:null,entryDate:t},
-      {dealer:"Round Rock Kia",vehicle:"2013 Accord",description:"Driver seat repair",price:300,entryDate:plus(-1)},
-      {dealer:"Mac Ford",vehicle:"2020 F-150",description:"Console lid recover",price:225,entryDate:plus(-2)}
+      {dealer:"Carmax Killeen",vehicle:"2019 Silverado",description:"Front seat panel replace",price:425,status:"YES",entryDate:t},
+      {dealer:"Howdy Honda",vehicle:"2015 Q40",description:"Driver seat, 3 panels",price:375,status:"IN Shop",entryDate:t},
+      {dealer:"Covert Hutto",vehicle:"2022 Wrangler",description:"Rear bench scuff — waiting on price",price:null,status:"Pulling Dawson",entryDate:t},
+      {dealer:"Round Rock Kia",vehicle:"2013 Accord",description:"Driver seat repair",price:300,status:"YES",entryDate:plus(-1)},
+      {dealer:"Mac Ford",vehicle:"2020 F-150",description:"Console lid recover",price:225,status:"YES",entryDate:plus(-2)},
+      {dealer:"Carmax Killeen",vehicle:"2018 Camry",description:"Rear seat cushion recover",price:350,status:"YES",entryDate:plus(-3)},
+      {dealer:"Covert Hutto",vehicle:"2021 Explorer",description:"Third row seam repair",price:275,status:"YES",entryDate:plus(-6)},
+      {dealer:"Round Rock Kia",vehicle:"2016 Sorento",description:"Bolster + armrest",price:400,status:"IN Shop",entryDate:plus(-8)}
     ]
   };
 }
