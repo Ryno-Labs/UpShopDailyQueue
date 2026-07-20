@@ -141,7 +141,18 @@
   .flag.info{background:#E0F2FE;color:#075985;border:1px solid #BAE6FD}
   .flag.pull{background:#EDE9FE;color:#5B21B6;border:1px solid #DDD6FE}
   .flag.muted{background:#F4F4F5;color:#71717A;border:1px solid #E4E4E7}
+  .flag.new{background:#FEE2E2;color:#991B1B;border:1px solid #FECACA}
   .flag .fdot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .card.fresh{border-color:#F3B7B2;border-left:3px solid var(--red)}
+  .cardfoot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+  .cardfoot .flags{margin-top:0}
+  .seen{flex:none;background:var(--card);border:1px solid var(--line);color:var(--ink-2);
+    font-family:inherit;font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;cursor:pointer}
+  .seen:active{background:var(--track)}
+  .freshbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 10px}
+  .freshbar span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);font-weight:700}
+  .seenall{background:transparent;border:1px solid var(--line);color:var(--muted);
+    font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border-radius:8px;cursor:pointer}
 
   .empty{color:var(--muted);font-size:14px;text-align:center;padding:26px 10px;
     border:1px dashed var(--line);border-radius:var(--radius);background:var(--card)}
@@ -195,7 +206,7 @@
       <div class="lbl">Lined up today</div>
       <div class="chips">
         <span class="chip"><span class="cdot cust"></span><b id="chipCust">0</b>&nbsp;customers</span>
-        <span class="chip"><span class="cdot deal"></span><b id="chipDeal">0</b>&nbsp;dealer jobs</span>
+        <span class="chip"><span class="cdot deal"></span><b id="chipDeal">0</b>&nbsp;in progress</span>
       </div>
       <div class="week" id="heroWeek"></div>
     </div>
@@ -223,9 +234,8 @@
       <span class="count" id="dealCount"></span>
     </div>
     <div class="seg" id="dealSeg">
-      <button data-view="today" class="on">Today</button>
-      <button data-view="week">This week</button>
-      <button data-view="all">All jobs</button>
+      <button data-view="active" class="on">Active</button>
+      <button data-view="all">All jobs (log)</button>
     </div>
     <div id="dealBody"></div>
   </section>
@@ -235,7 +245,7 @@
 <script>
 /* ================= CONFIG ================= */
 // Paste your Apps Script /exec URL here after deploying Code.gs:
-var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxWvZDwz2kGijWDgE_scWv-T4w4H82EnS0xnlaW_RMJ6MnlOk5poW60FKdZLZ2PD9rf/exec";
+var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxZzrebzSEt662VdypiWGHCK-XthhctPuvqLB5T7P6B5pyudvNYtcQmrFvU_XTXYv9n/exec";
 var CACHE_KEY = "colornew_queue_v1";
 
 /* ============== date utilities ============== */
@@ -264,7 +274,7 @@ function prettyDay(k){
 
 /* ============== state ============== */
 var DATA={dealer:[],retail:[]};
-var custView="today", dealView="today";
+var custView="today", dealView="active";
 var calMonth=TODAY.getMonth(), calYear=TODAY.getFullYear(), calPicked=null;
 
 /* ============== fetch + cache ============== */
@@ -330,14 +340,13 @@ function animateCount(el,to){
 }
 function heroNumbers(){
   var custToday=DATA.retail.filter(function(r){return r.apptDate===TODAY_KEY;}).length;
-  var dealToday=DATA.dealer.filter(function(r){return r.entryDate===TODAY_KEY;}).length;
+  var dealActive=DATA.dealer.filter(isActive).length;
   var custWeek=DATA.retail.filter(function(r){return inWeek(r.apptDate);}).length;
-  var dealWeek=DATA.dealer.filter(function(r){return inWeek(r.entryDate);}).length;
   document.getElementById("heroDate").textContent=fmtEyebrow();
-  animateCount(document.getElementById("heroNum"), custToday+dealToday);
+  animateCount(document.getElementById("heroNum"), custToday+dealActive);
   document.getElementById("chipCust").textContent=custToday;
-  document.getElementById("chipDeal").textContent=dealToday;
-  document.getElementById("heroWeek").textContent="This week: "+(custWeek+dealWeek)+" lined up";
+  document.getElementById("chipDeal").textContent=dealActive;
+  document.getElementById("heroWeek").textContent="This week: "+custWeek+" customer"+(custWeek===1?"":"s")+" coming in";
 }
 
 function flagRow(flags){
@@ -365,15 +374,29 @@ function statusInfo(s){
   if(t.indexOf("yes")>-1||t.indexOf("done")>-1||t.indexOf("complet")>-1) return {kind:"good",text:"Done"};
   return {kind:"info",text:s}; // show whatever was typed
 }
-function dealCard(r){
+function isDone(r){ var t=String(r.status||"").trim().toLowerCase();
+  return t.indexOf("yes")>-1||t.indexOf("done")>-1||t.indexOf("complet")>-1; }
+function isActive(r){ return !isDone(r); }
+
+// "New" tracking — remembers which jobs you've already seen, per device
+var SEEN_KEY="colornew_seen_v1";
+function loadSeen(){ try{return JSON.parse(localStorage.getItem(SEEN_KEY))||{};}catch(e){return {};} }
+function saveSeen(m){ try{localStorage.setItem(SEEN_KEY,JSON.stringify(m));}catch(e){} }
+var SEEN=loadSeen();
+function dealId(r){ return [r.dealer,r.vehicle,r.description,r.entryDate].join("|"); }
+function dealCard(r, fresh){
   var flags=[statusInfo(r.status)];
   if(r.price==null) flags.push({kind:"warn",text:"Needs quote"});
-  return '<div class="card">'+
+  if(fresh) flags.unshift({kind:"new",text:"New"});
+  var flagsHtml=flags.map(function(f){return '<span class="flag '+f.kind+'"><span class="fdot"></span>'+esc(f.text)+'</span>';}).join("");
+  var foot='<div class="cardfoot"><div class="flags">'+flagsHtml+'</div>'+
+    (fresh?'<button class="seen" data-id="'+esc(dealId(r))+'">Seen &#10003;</button>':'')+'</div>';
+  return '<div class="card'+(fresh?' fresh':'')+'">'+
     '<div class="top"><div><div class="name">'+esc(r.dealer||"—")+'</div>'+
     '<div class="veh">'+esc(r.vehicle||"")+'</div></div>'+
     (r.price!=null?'<span class="price">$'+Number(r.price).toLocaleString()+'</span>':'')+'</div>'+
     (r.description?'<div class="desc">'+esc(r.description)+'</div>':'')+
-    flagRow(flags)+'</div>';
+    foot+'</div>';
 }
 
 function groupByDay(rows,dateField){
@@ -405,19 +428,31 @@ function renderCustomers(){
 function renderDealers(){
   var body=document.getElementById("dealBody");
   var count=document.getElementById("dealCount");
-  var pool, suffix;
-  if(dealView==="today"){ pool=DATA.dealer.filter(function(r){return r.entryDate===TODAY_KEY;}); suffix=" today"; }
-  else if(dealView==="week"){ pool=DATA.dealer.filter(function(r){return inWeek(r.entryDate);}); suffix=" this week"; }
-  else { pool=DATA.dealer.slice(); suffix=" total"; }
-  count.textContent=pool.length+suffix;
-  if(!pool.length){
-    body.innerHTML=emptyState(dealView==="today"?"No dealer jobs logged today.":dealView==="week"?"No dealer jobs logged this week.":"No dealer jobs yet.");
+  if(dealView==="all"){
+    var all=DATA.dealer.slice();
+    count.textContent=all.length+" total";
+    if(!all.length){ body.innerHTML=emptyState("No dealer jobs yet."); return; }
+    var g=groupByDay(all,"entryDate"); g.reverse();
+    body.innerHTML=dayGroupsHTML(g,function(r){return dealCard(r,false);});
     return;
   }
-  if(dealView==="today"){ body.innerHTML=pool.map(dealCard).join(""); return; }
-  var groups=groupByDay(pool,"entryDate");
-  if(dealView==="all") groups.reverse(); // newest day first
-  body.innerHTML=dayGroupsHTML(groups,dealCard);
+  // ACTIVE — jobs still in progress; Done jobs drop to the log
+  var active=DATA.dealer.filter(isActive);
+  count.textContent=active.length+" in progress";
+  if(!active.length){ body.innerHTML=emptyState("Nothing in progress — all caught up."); return; }
+  var fresh=[], settled=[];
+  active.forEach(function(r){ (SEEN[dealId(r)]?settled:fresh).push(r); });
+  var html="";
+  if(fresh.length){
+    html+='<div class="freshbar"><span>New · '+fresh.length+'</span>'+
+      '<button id="dealSeenAll" class="seenall">Clear all</button></div>';
+    html+=fresh.map(function(r){return dealCard(r,true);}).join("");
+  }
+  if(settled.length){
+    var groups=groupByDay(settled,"entryDate"); groups.reverse();
+    html+=dayGroupsHTML(groups,function(r){return dealCard(r,false);});
+  }
+  body.innerHTML=html;
 }
 function emptyState(msg){return '<div class="empty">'+esc(msg)+'</div>';}
 
@@ -479,6 +514,14 @@ document.getElementById("custBody").addEventListener("click",function(e){
   }
 });
 document.getElementById("refresh").addEventListener("click",fetchLive);
+document.getElementById("dealBody").addEventListener("click",function(e){
+  var s=e.target.closest(".seen");
+  if(s){ SEEN[s.getAttribute("data-id")]=1; saveSeen(SEEN); renderDealers(); return; }
+  if(e.target.id==="dealSeenAll"){
+    DATA.dealer.filter(isActive).forEach(function(r){ SEEN[dealId(r)]=1; });
+    saveSeen(SEEN); renderDealers(); return;
+  }
+});
 
 /* ============== boot ============== */
 (function boot(){
@@ -509,14 +552,14 @@ function demoData(){
       {name:"Luis Ortega",vehicle:"2022 RAM 1500",description:"Armrest recover",apptDate:plus(9),source:"Google Search"}
     ],
     dealer:[
-      {dealer:"Carmax Killeen",vehicle:"2019 Silverado",description:"Front seat panel replace",price:425,status:"YES",entryDate:t},
       {dealer:"Howdy Honda",vehicle:"2015 Q40",description:"Driver seat, 3 panels",price:375,status:"IN Shop",entryDate:t},
       {dealer:"Covert Hutto",vehicle:"2022 Wrangler",description:"Rear bench scuff — waiting on price",price:null,status:"Pulling Dawson",entryDate:t},
-      {dealer:"Round Rock Kia",vehicle:"2013 Accord",description:"Driver seat repair",price:300,status:"YES",entryDate:plus(-1)},
-      {dealer:"Mac Ford",vehicle:"2020 F-150",description:"Console lid recover",price:225,status:"YES",entryDate:plus(-2)},
+      {dealer:"Mac Ford",vehicle:"2020 F-150",description:"Console lid recover — just dropped",price:225,status:"",entryDate:t},
+      {dealer:"Round Rock Kia",vehicle:"2016 Sorento",description:"Bolster + armrest",price:400,status:"IN Shop",entryDate:plus(-1)},
+      {dealer:"Carmax Killeen",vehicle:"2019 Silverado",description:"Front seat panel replace",price:425,status:"YES",entryDate:plus(-1)},
+      {dealer:"Round Rock Kia",vehicle:"2013 Accord",description:"Driver seat repair",price:300,status:"YES",entryDate:plus(-2)},
       {dealer:"Carmax Killeen",vehicle:"2018 Camry",description:"Rear seat cushion recover",price:350,status:"YES",entryDate:plus(-3)},
-      {dealer:"Covert Hutto",vehicle:"2021 Explorer",description:"Third row seam repair",price:275,status:"YES",entryDate:plus(-6)},
-      {dealer:"Round Rock Kia",vehicle:"2016 Sorento",description:"Bolster + armrest",price:400,status:"IN Shop",entryDate:plus(-8)}
+      {dealer:"Covert Hutto",vehicle:"2021 Explorer",description:"Third row seam repair",price:275,status:"YES",entryDate:plus(-6)}
     ]
   };
 }
